@@ -10,14 +10,17 @@ require('dotenv').config();
 
 const app = express();
 
+// ✅ ADD THIS LINE (VERY IMPORTANT FOR RENDER)
+app.set('trust proxy', 1);
+
 // Security Middleware
 app.use(helmet());
 app.use(compression());
 
 // Rate Limiting
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // limit each IP to 100 requests per windowMs
+  windowMs: 15 * 60 * 1000,
+  max: 100,
   message: 'Too many requests from this IP, please try again later.'
 });
 app.use('/api/', limiter);
@@ -41,10 +44,7 @@ if (process.env.NODE_ENV === 'development') {
 }
 
 // Database Connection
-mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/ytlcnich', {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-})
+mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/ytlcnich')
 .then(() => console.log('MongoDB Connected Successfully'))
 .catch(err => {
   console.error('MongoDB Connection Error:', err);
