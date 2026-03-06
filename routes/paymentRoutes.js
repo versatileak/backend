@@ -23,8 +23,8 @@ router.post('/create-order', protect, paymentValidation, handleValidationErrors,
     // Get plan details
     const plan = await getPlanAmount(plan_type);
 
-    // Create receipt ID
-    const receipt = `order_${req.user._id}_${Date.now()}`;
+    // ✅ FIXED: short receipt ID (max 40 chars)
+    const receipt = `ord_${Date.now()}`;
 
     // Create Razorpay order
     const order = await createOrder(
@@ -75,7 +75,7 @@ router.post('/verify', protect, async (req, res) => {
     } = req.body;
 
     // Verify payment signature
-    const isValid = verifyPayment(
+    const isValid = await verifyPayment(
       razorpay_order_id,
       razorpay_payment_id,
       razorpay_signature
@@ -102,7 +102,7 @@ router.post('/verify', protect, async (req, res) => {
           payment_history: {
             order_id: razorpay_order_id,
             payment_id: razorpay_payment_id,
-            amount: req.body.amount / 100, // Convert from paise
+            amount: req.body.amount / 100,
             currency: req.body.currency || 'INR',
             plan_type: plan_type,
             status: 'completed'
@@ -139,8 +139,7 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
   try {
     const signature = req.headers['x-razorpay-signature'];
     const settings = await Settings.getSettings();
-    
-    // Verify webhook signature
+
     const isValid = verifyWebhookSignature(
       req.body,
       signature,
@@ -156,16 +155,13 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
 
     const event = JSON.parse(req.body);
 
-    // Handle payment captured event
     if (event.event === 'payment.captured') {
-      const { order_id, id: payment_id } = event.payload.payment.entity;
-      
-      // Find user by order notes
+      const { order_id } = event.payload.payment.entity;
+
       const orderNotes = event.payload.payment.entity.notes;
       if (orderNotes && orderNotes.user_id) {
         const user = await User.findById(orderNotes.user_id);
         if (user) {
-          // Update payment history status
           const paymentRecord = user.payment_history.find(
             p => p.order_id === order_id
           );
