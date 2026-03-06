@@ -426,7 +426,7 @@ router.get('/settings', async (req, res) => {
 // @route   PUT /api/admin/settings
 // @desc    Update settings
 // @access  Admin
-router.put('/settings', settingsValidation, handleValidationErrors, async (req, res) => {
+router.put('/settings', async (req, res) => {
   try {
     const settings = await Settings.getSettings();
     
