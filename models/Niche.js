@@ -24,6 +24,19 @@ const nicheSchema = new mongoose.Schema({
     maxlength: [500, 'Description cannot be more than 500 characters'],
     default: ''
   },
+
+  // ✅ MAIN IMAGE FIELD
+  image: {
+    type: String,
+    default: ''
+  },
+
+  // ✅ OLD FIELD KEEP FOR COMPATIBILITY
+  thumbnail: {
+    type: String,
+    default: ''
+  },
+
   earning: {
     min_earning: {
       type: Number,
@@ -88,10 +101,6 @@ const nicheSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
-  thumbnail: {
-    type: String,
-    default: ''
-  },
   category: {
     type: String,
     enum: ['entertainment', 'education', 'gaming', 'tech', 'lifestyle', 'business', 'health', 'other'],
@@ -131,6 +140,16 @@ nicheSchema.pre('save', function(next) {
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/(^-|-$)/g, '');
   }
+
+  // ✅ image aur thumbnail dono sync rahenge
+  if (this.image && !this.thumbnail) {
+    this.thumbnail = this.image;
+  }
+
+  if (this.thumbnail && !this.image) {
+    this.image = this.thumbnail;
+  }
+
   next();
 });
 
