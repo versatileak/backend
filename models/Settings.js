@@ -4,36 +4,33 @@ const settingsSchema = new mongoose.Schema({
   // Razorpay Configuration
   razorpay_key_id: {
     type: String,
-    required: [true, 'Razorpay Key ID is required'],
     default: ''
   },
   razorpay_key_secret: {
     type: String,
-    required: [true, 'Razorpay Key Secret is required'],
     default: ''
   },
   razorpay_webhook_secret: {
     type: String,
     default: ''
   },
-  
+
   // OpenAI Configuration
   openai_api_key: {
     type: String,
-    required: [true, 'OpenAI API Key is required'],
     default: ''
   },
   openai_model: {
     type: String,
     default: 'gpt-3.5-turbo'
   },
-  
+
   // Pricing Configuration
   pricing: {
     monthly: {
       amount: {
         type: Number,
-        default: 999 // INR
+        default: 999
       },
       currency: {
         type: String,
@@ -47,7 +44,7 @@ const settingsSchema = new mongoose.Schema({
     yearly: {
       amount: {
         type: Number,
-        default: 9990 // INR
+        default: 9990
       },
       currency: {
         type: String,
@@ -63,7 +60,7 @@ const settingsSchema = new mongoose.Schema({
       }
     }
   },
-  
+
   // App Configuration
   app_name: {
     type: String,
@@ -77,7 +74,7 @@ const settingsSchema = new mongoose.Schema({
     type: String,
     default: 'support@ytlcnich.online'
   },
-  
+
   // Feature Flags
   features: {
     ai_script_generator: {
@@ -93,7 +90,7 @@ const settingsSchema = new mongoose.Schema({
       default: 2
     }
   },
-  
+
   // Maintenance Mode
   maintenance_mode: {
     type: Boolean,
@@ -103,10 +100,11 @@ const settingsSchema = new mongoose.Schema({
     type: String,
     default: 'We are currently under maintenance. Please check back later.'
   },
-  
+
   updated_by: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'User'
+    ref: 'User',
+    default: null
   },
   updated_at: {
     type: Date,
