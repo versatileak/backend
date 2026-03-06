@@ -2,47 +2,35 @@ const Razorpay = require('razorpay');
 const crypto = require('crypto');
 const Settings = require('../models/Settings');
 
-// Initialize Razorpay with settings from database
-let razorpayInstance = null;
+// Always get fresh Razorpay instance from database settings
+const getFreshRazorpayInstance = async () => {
+  const settings = await Settings.getSettings();
 
-const initializeRazorpay = async () => {
-  try {
-    const settings = await Settings.getSettings();
-    
-    if (!settings.razorpay_key_id || !settings.razorpay_key_secret) {
-      throw new Error('Razorpay credentials not configured');
-    }
-
-    razorpayInstance = new Razorpay({
-      key_id: settings.razorpay_key_id,
-      key_secret: settings.razorpay_key_secret
-    });
-
-    return razorpayInstance;
-  } catch (error) {
-    console.error('Razorpay initialization error:', error.message);
-    throw error;
+  if (!settings.razorpay_key_id || !settings.razorpay_key_secret) {
+    throw new Error('Razorpay credentials not configured');
   }
+
+  return new Razorpay({
+    key_id: settings.razorpay_key_id,
+    key_secret: settings.razorpay_key_secret
+  });
 };
 
 // Get Razorpay instance
 exports.getRazorpay = async () => {
-  if (!razorpayInstance) {
-    await initializeRazorpay();
-  }
-  return razorpayInstance;
+  return await getFreshRazorpayInstance();
 };
 
 // Create order
 exports.createOrder = async (amount, currency, receipt, notes = {}) => {
   try {
     const razorpay = await exports.getRazorpay();
-    
+
     const options = {
-      amount: amount * 100, // Razorpay expects amount in paise
+      amount: Number(amount) * 100,
       currency: currency || 'INR',
-      receipt: receipt,
-      notes: notes
+      receipt,
+      notes
     };
 
     const order = await razorpay.orders.create(options);
@@ -54,11 +42,13 @@ exports.createOrder = async (amount, currency, receipt, notes = {}) => {
 };
 
 // Verify payment signature
-exports.verifyPayment = (orderId, paymentId, signature) => {
+exports.verifyPayment = async (orderId, paymentId, signature) => {
   try {
-    const text = orderId + '|' + paymentId;
+    const settings = await Settings.getSettings();
+
+    const text = `${orderId}|${paymentId}`;
     const generatedSignature = crypto
-      .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
+      .createHmac('sha256', settings.razorpay_key_secret)
       .update(text)
       .digest('hex');
 
@@ -99,14 +89,16 @@ exports.fetchPayment = async (paymentId) => {
 // Calculate plan amount
 exports.getPlanAmount = async (planType) => {
   const settings = await Settings.getSettings();
-  
+
   if (planType === 'monthly') {
     return {
       amount: settings.pricing.monthly.amount,
       currency: settings.pricing.monthly.currency,
       description: settings.pricing.monthly.description
     };
-  } else if (planType === 'yearly') {
+  }
+
+  if (planType === 'yearly') {
     return {
       amount: settings.pricing.yearly.amount,
       currency: settings.pricing.yearly.currency,
@@ -114,19 +106,21 @@ exports.getPlanAmount = async (planType) => {
       discount_percentage: settings.pricing.yearly.discount_percentage
     };
   }
-  
+
   throw new Error('Invalid plan type');
 };
 
 // Calculate expiry date
 exports.calculateExpiryDate = (planType) => {
   const now = new Date();
-  
+
   if (planType === 'monthly') {
     return new Date(now.setMonth(now.getMonth() + 1));
-  } else if (planType === 'yearly') {
+  }
+
+  if (planType === 'yearly') {
     return new Date(now.setFullYear(now.getFullYear() + 1));
   }
-  
+
   return null;
 };
