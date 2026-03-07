@@ -32,7 +32,8 @@
     "helmet": "^7.1.0",
     "express-rate-limit": "^7.1.5",
     "morgan": "^1.10.0",
-    "compression": "^1.7.4"
+    "compression": "^1.7.4",
+    "nodemailer": "^6.9.14"
   },
   "devDependencies": {
     "nodemon": "^3.0.2"
