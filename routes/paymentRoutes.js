@@ -1,16 +1,15 @@
 const express = require('express');
 const router = express.Router();
-const crypto = require('crypto');
 const User = require('../models/User');
 const Settings = require('../models/Settings');
 const { protect } = require('../middleware/auth');
 const { paymentValidation, handleValidationErrors } = require('../middleware/validation');
-const { 
-  createOrder, 
-  verifyPayment, 
+const {
+  createOrder,
+  verifyPayment,
   verifyWebhookSignature,
   getPlanAmount,
-  calculateExpiryDate 
+  calculateExpiryDate
 } = require('../utils/razorpay');
 
 // @route   POST /api/payment/create-order
@@ -20,26 +19,32 @@ router.post('/create-order', protect, paymentValidation, handleValidationErrors,
   try {
     const { plan_type } = req.body;
 
-    // Get plan details
     const plan = await getPlanAmount(plan_type);
+    const settings = await Settings.getSettings();
 
-    // ✅ FIXED: short receipt ID (max 40 chars)
+    if (!settings.razorpay_key_id || !settings.razorpay_key_secret) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Razorpay credentials are not configured in admin settings'
+      });
+    }
+
     const receipt = `ord_${Date.now()}`;
 
-    // Create Razorpay order
     const order = await createOrder(
       plan.amount,
       plan.currency,
       receipt,
       {
         user_id: req.user._id.toString(),
-        plan_type: plan_type,
+        plan_type,
         email: req.user.email
       }
     );
 
     res.status(200).json({
       status: 'success',
+      key_id: settings.razorpay_key_id,
       order: {
         id: order.id,
         amount: order.amount,
@@ -67,14 +72,13 @@ router.post('/create-order', protect, paymentValidation, handleValidationErrors,
 // @access  Private
 router.post('/verify', protect, async (req, res) => {
   try {
-    const { 
-      razorpay_order_id, 
-      razorpay_payment_id, 
+    const {
+      razorpay_order_id,
+      razorpay_payment_id,
       razorpay_signature,
-      plan_type 
+      plan_type
     } = req.body;
 
-    // Verify payment signature
     const isValid = await verifyPayment(
       razorpay_order_id,
       razorpay_payment_id,
@@ -88,10 +92,8 @@ router.post('/verify', protect, async (req, res) => {
       });
     }
 
-    // Calculate expiry date
     const expiryDate = calculateExpiryDate(plan_type);
 
-    // Update user subscription
     const user = await User.findByIdAndUpdate(
       req.user._id,
       {
@@ -157,8 +159,8 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
 
     if (event.event === 'payment.captured') {
       const { order_id } = event.payload.payment.entity;
-
       const orderNotes = event.payload.payment.entity.notes;
+
       if (orderNotes && orderNotes.user_id) {
         const user = await User.findById(orderNotes.user_id);
         if (user) {
