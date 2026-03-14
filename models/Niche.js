@@ -25,14 +25,18 @@ const nicheSchema = new mongoose.Schema({
     default: ''
   },
 
-  // ✅ MAIN IMAGE FIELD
   image: {
     type: String,
     default: ''
   },
 
-  // ✅ OLD FIELD KEEP FOR COMPATIBILITY
   thumbnail: {
+    type: String,
+    default: ''
+  },
+
+  // ✅ NEW FIELD
+  tutorial_video: {
     type: String,
     default: ''
   },
@@ -132,7 +136,6 @@ const nicheSchema = new mongoose.Schema({
   }
 });
 
-// Create slug before saving
 nicheSchema.pre('save', function(next) {
   if (!this.slug) {
     this.slug = this.niche_name
@@ -141,7 +144,6 @@ nicheSchema.pre('save', function(next) {
       .replace(/(^-|-$)/g, '');
   }
 
-  // ✅ image aur thumbnail dono sync rahenge
   if (this.image && !this.thumbnail) {
     this.thumbnail = this.image;
   }
@@ -153,7 +155,6 @@ nicheSchema.pre('save', function(next) {
   next();
 });
 
-// Update timestamp
 nicheSchema.pre('save', function(next) {
   if (!this.isNew) {
     this.updated_at = Date.now();
@@ -161,15 +162,12 @@ nicheSchema.pre('save', function(next) {
   next();
 });
 
-// Index for search
 nicheSchema.index({ niche_name: 'text', description: 'text', tags: 'text' });
 
-// Static method to get free niches
 nicheSchema.statics.getFreeNiches = function() {
   return this.find({ is_free: true, is_active: true }).sort({ created_at: -1 });
 };
 
-// Static method to get all active niches
 nicheSchema.statics.getAllActiveNiches = function() {
   return this.find({ is_active: true }).sort({ created_at: -1 });
 };

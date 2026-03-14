@@ -9,24 +9,24 @@ const { protect, optionalAuth } = require('../middleware/auth');
 router.get('/', optionalAuth, async (req, res) => {
   try {
     const { search, category, page = 1, limit = 12 } = req.query;
-    
+
     let query = { is_active: true };
-    
-    // Search functionality
+
     if (search) {
       query.$text = { $search: search };
     }
-    
-    // Category filter
+
     if (category && category !== 'all') {
       query.category = category;
     }
 
-    // Check user access
-    const isPremium = req.user && req.user.subscription_status === 'premium' && req.user.hasActiveSubscription();
+    const isPremium =
+      req.user &&
+      req.user.subscription_status === 'premium' &&
+      req.user.hasActiveSubscription();
+
     const isAdmin = req.user && req.user.role === 'admin';
 
-    // If not premium and not admin, only show free niches
     if (!isPremium && !isAdmin) {
       query.is_free = true;
     }
@@ -41,7 +41,6 @@ router.get('/', optionalAuth, async (req, res) => {
 
     const total = await Niche.countDocuments(query);
 
-    // Get total free and paid niches for reference
     const freeCount = await Niche.countDocuments({ is_active: true, is_free: true });
     const paidCount = await Niche.countDocuments({ is_active: true, is_free: false });
 
@@ -57,7 +56,7 @@ router.get('/', optionalAuth, async (req, res) => {
         limit: parseInt(limit),
         total_pages: Math.ceil(total / parseInt(limit))
       },
-      niches: niches.map(niche => ({
+      niches: niches.map((niche) => ({
         id: niche._id,
         niche_name: niche.niche_name,
         channel_name: niche.channel_name,
@@ -68,17 +67,20 @@ router.get('/', optionalAuth, async (req, res) => {
         is_free: niche.is_free,
         category: niche.category,
         tags: niche.tags,
+        image: niche.image,
         thumbnail: niche.thumbnail,
+        tutorial_video: niche.tutorial_video || '',
         created_at: niche.created_at,
-        // For non-premium users, hide detailed content
-        ...(isPremium || isAdmin || niche.is_free ? {
-          how_to_work: niche.how_to_work,
-          tools_required: niche.tools_required
-        } : {
-          how_to_work: null,
-          tools_required: null,
-          locked: true
-        })
+        ...(isPremium || isAdmin || niche.is_free
+          ? {
+              how_to_work: niche.how_to_work,
+              tools_required: niche.tools_required
+            }
+          : {
+              how_to_work: null,
+              tools_required: null,
+              locked: true
+            })
       }))
     });
   } catch (error) {
@@ -96,11 +98,11 @@ router.get('/', optionalAuth, async (req, res) => {
 router.get('/free', async (req, res) => {
   try {
     const niches = await Niche.getFreeNiches();
-    
+
     res.status(200).json({
       status: 'success',
       count: niches.length,
-      niches: niches.map(niche => ({
+      niches: niches.map((niche) => ({
         id: niche._id,
         niche_name: niche.niche_name,
         channel_name: niche.channel_name,
@@ -111,7 +113,9 @@ router.get('/free', async (req, res) => {
         is_free: niche.is_free,
         category: niche.category,
         tags: niche.tags,
+        image: niche.image,
         thumbnail: niche.thumbnail,
+        tutorial_video: niche.tutorial_video || '',
         how_to_work: niche.how_to_work,
         tools_required: niche.tools_required,
         created_at: niche.created_at
@@ -140,12 +144,14 @@ router.get('/:slug', optionalAuth, async (req, res) => {
       });
     }
 
-    // Increment view count
     niche.view_count += 1;
     await niche.save({ validateBeforeSave: false });
 
-    // Check access
-    const isPremium = req.user && req.user.subscription_status === 'premium' && req.user.hasActiveSubscription();
+    const isPremium =
+      req.user &&
+      req.user.subscription_status === 'premium' &&
+      req.user.hasActiveSubscription();
+
     const isAdmin = req.user && req.user.role === 'admin';
     const hasAccess = isPremium || isAdmin || niche.is_free;
 
@@ -163,18 +169,22 @@ router.get('/:slug', optionalAuth, async (req, res) => {
         is_free: niche.is_free,
         category: niche.category,
         tags: niche.tags,
+        image: niche.image,
         thumbnail: niche.thumbnail,
+        tutorial_video: niche.tutorial_video || '',
         view_count: niche.view_count,
         created_at: niche.created_at,
-        ...(hasAccess ? {
-          how_to_work: niche.how_to_work,
-          tools_required: niche.tools_required
-        } : {
-          how_to_work: null,
-          tools_required: null,
-          locked: true,
-          upgrade_message: 'Upgrade to Premium to unlock this content'
-        })
+        ...(hasAccess
+          ? {
+              how_to_work: niche.how_to_work,
+              tools_required: niche.tools_required
+            }
+          : {
+              how_to_work: null,
+              tools_required: null,
+              locked: true,
+              upgrade_message: 'Upgrade to Premium to unlock this content'
+            })
       }
     });
   } catch (error) {
@@ -224,7 +234,7 @@ router.get('/stats/overview', async (req, res) => {
     const totalNiches = await Niche.countDocuments({ is_active: true });
     const freeNiches = await Niche.countDocuments({ is_active: true, is_free: true });
     const paidNiches = await Niche.countDocuments({ is_active: true, is_free: false });
-    
+
     const categories = await Niche.aggregate([
       { $match: { is_active: true } },
       { $group: { _id: '$category', count: { $sum: 1 } } },
@@ -237,7 +247,7 @@ router.get('/stats/overview', async (req, res) => {
         total_niches: totalNiches,
         free_niches: freeNiches,
         paid_niches: paidNiches,
-        categories: categories.map(c => ({ name: c._id, count: c.count }))
+        categories: categories.map((c) => ({ name: c._id, count: c.count }))
       }
     });
   } catch (error) {

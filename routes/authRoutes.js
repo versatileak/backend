@@ -1,202 +1,277 @@
 const express = require('express');
+const crypto = require('crypto');
 const router = express.Router();
 const User = require('../models/User');
 const { protect } = require('../middleware/auth');
-const { 
-  registerValidation, 
-  loginValidation, 
-  handleValidationErrors 
+const {
+registerValidation,
+loginValidation,
+handleValidationErrors
 } = require('../middleware/validation');
 const { sendTokenResponse, clearTokenCookie } = require('../utils/jwt');
+const sendEmail = require('../utils/emailService');
 
-// @route   POST /api/auth/register
-// @desc    Register a new user
-// @access  Public
+// ===============================
+// REGISTER
+// ===============================
 router.post('/register', registerValidation, handleValidationErrors, async (req, res) => {
-  try {
-    const { name, email, password } = req.body;
+try {
 
-    // Check if user already exists
-    const existingUser = await User.findOne({ email });
-    if (existingUser) {
-      return res.status(400).json({
-        status: 'error',
-        message: 'User already exists with this email'
-      });
-    }
+```
+const { name, email, password } = req.body;
 
-    // Create new user
-    const user = await User.create({
-      name,
-      email,
-      password
-    });
+const existingUser = await User.findOne({ email });
 
-    // Send token response
-    sendTokenResponse(user, 201, res);
-  } catch (error) {
-    console.error('Register error:', error);
-    res.status(500).json({
-      status: 'error',
-      message: 'Server error during registration'
-    });
-  }
-});
-
-// @route   POST /api/auth/login
-// @desc    Login user
-// @access  Public
-router.post('/login', loginValidation, handleValidationErrors, async (req, res) => {
-  try {
-    const { email, password } = req.body;
-
-    // Check if user exists
-    const user = await User.findOne({ email }).select('+password');
-    if (!user) {
-      return res.status(401).json({
-        status: 'error',
-        message: 'Invalid credentials'
-      });
-    }
-
-    // Check if user is active
-    if (!user.is_active) {
-      return res.status(401).json({
-        status: 'error',
-        message: 'Your account has been deactivated'
-      });
-    }
-
-    // Check password
-    const isMatch = await user.comparePassword(password);
-    if (!isMatch) {
-      return res.status(401).json({
-        status: 'error',
-        message: 'Invalid credentials'
-      });
-    }
-
-    // Update last login
-    user.last_login = Date.now();
-    await user.save({ validateBeforeSave: false });
-
-    // Send token response
-    sendTokenResponse(user, 200, res);
-  } catch (error) {
-    console.error('Login error:', error);
-    res.status(500).json({
-      status: 'error',
-      message: 'Server error during login'
-    });
-  }
-});
-
-// @route   POST /api/auth/logout
-// @desc    Logout user
-// @access  Private
-router.post('/logout', protect, (req, res) => {
-  clearTokenCookie(res);
-  res.status(200).json({
-    status: 'success',
-    message: 'Logged out successfully'
+if (existingUser) {
+  return res.status(400).json({
+    status: 'error',
+    message: 'User already exists with this email'
   });
+}
+
+const user = await User.create({
+  name,
+  email,
+  password
 });
 
-// @route   GET /api/auth/me
-// @desc    Get current user
-// @access  Private
+sendTokenResponse(user, 201, res);
+```
+
+} catch (error) {
+
+```
+console.error('Register error:', error);
+
+res.status(500).json({
+  status: 'error',
+  message: 'Server error during registration'
+});
+```
+
+}
+});
+
+// ===============================
+// LOGIN
+// ===============================
+router.post('/login', loginValidation, handleValidationErrors, async (req, res) => {
+
+try {
+
+```
+const { email, password } = req.body;
+
+const user = await User.findOne({ email }).select('+password');
+
+if (!user) {
+  return res.status(401).json({
+    status: 'error',
+    message: 'Invalid credentials'
+  });
+}
+
+if (!user.is_active) {
+  return res.status(401).json({
+    status: 'error',
+    message: 'Your account has been deactivated'
+  });
+}
+
+const isMatch = await user.comparePassword(password);
+
+if (!isMatch) {
+  return res.status(401).json({
+    status: 'error',
+    message: 'Invalid credentials'
+  });
+}
+
+user.last_login = Date.now();
+await user.save({ validateBeforeSave: false });
+
+sendTokenResponse(user, 200, res);
+```
+
+} catch (error) {
+
+```
+console.error('Login error:', error);
+
+res.status(500).json({
+  status: 'error',
+  message: 'Server error during login'
+});
+```
+
+}
+
+});
+
+// ===============================
+// FORGOT PASSWORD
+// ===============================
+router.post('/forgot-password', async (req, res) => {
+
+try {
+
+```
+const { email } = req.body;
+
+const user = await User.findOne({ email });
+
+if (!user) {
+  return res.status(404).json({
+    status: 'error',
+    message: 'No user found with this email'
+  });
+}
+
+const resetToken = crypto.randomBytes(32).toString('hex');
+
+const hashedToken = crypto
+  .createHash('sha256')
+  .update(resetToken)
+  .digest('hex');
+
+user.resetPasswordToken = hashedToken;
+user.resetPasswordExpire = Date.now() + 15 * 60 * 1000;
+
+await user.save({ validateBeforeSave: false });
+
+const resetURL = `${process.env.FRONTEND_URL}/reset-password/${resetToken}`;
+
+const message = `
+  You requested a password reset.
+
+  Click this link to reset your password:
+
+  ${resetURL}
+
+  This link will expire in 15 minutes.
+`;
+
+await sendEmail({
+  to: user.email,
+  subject: "Password Reset Request",
+  text: message
+});
+
+res.json({
+  status: 'success',
+  message: 'Password reset email sent'
+});
+```
+
+} catch (error) {
+
+```
+console.error(error);
+
+res.status(500).json({
+  status: 'error',
+  message: 'Email sending failed'
+});
+```
+
+}
+
+});
+
+// ===============================
+// RESET PASSWORD
+// ===============================
+router.post('/reset-password/:token', async (req, res) => {
+
+try {
+
+```
+const hashedToken = crypto
+  .createHash('sha256')
+  .update(req.params.token)
+  .digest('hex');
+
+const user = await User.findOne({
+  resetPasswordToken: hashedToken,
+  resetPasswordExpire: { $gt: Date.now() }
+});
+
+if (!user) {
+  return res.status(400).json({
+    status: 'error',
+    message: 'Invalid or expired token'
+  });
+}
+
+user.password = req.body.password;
+
+user.resetPasswordToken = undefined;
+user.resetPasswordExpire = undefined;
+
+await user.save();
+
+res.json({
+  status: 'success',
+  message: 'Password reset successful'
+});
+```
+
+} catch (error) {
+
+```
+console.error(error);
+
+res.status(500).json({
+  status: 'error',
+  message: 'Password reset failed'
+});
+```
+
+}
+
+});
+
+// ===============================
+// LOGOUT
+// ===============================
+router.post('/logout', protect, (req, res) => {
+
+clearTokenCookie(res);
+
+res.status(200).json({
+status: 'success',
+message: 'Logged out successfully'
+});
+
+});
+
+// ===============================
+// GET CURRENT USER
+// ===============================
 router.get('/me', protect, async (req, res) => {
-  try {
-    const user = await User.findById(req.user.id);
-    
-    res.status(200).json({
-      status: 'success',
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        subscription_status: user.subscription_status,
-        plan_type: user.plan_type,
-        expiry_date: user.expiry_date,
-        days_remaining: user.getSubscriptionDaysRemaining(),
-        created_at: user.created_at
-      }
-    });
-  } catch (error) {
-    console.error('Get me error:', error);
-    res.status(500).json({
-      status: 'error',
-      message: 'Server error'
-    });
-  }
+
+try {
+
+```
+const user = await User.findById(req.user.id);
+
+res.json({
+  status: 'success',
+  user
 });
+```
 
-// @route   PUT /api/auth/update-profile
-// @desc    Update user profile
-// @access  Private
-router.put('/update-profile', protect, async (req, res) => {
-  try {
-    const { name } = req.body;
-    
-    const user = await User.findByIdAndUpdate(
-      req.user.id,
-      { name },
-      { new: true, runValidators: true }
-    );
+} catch (error) {
 
-    res.status(200).json({
-      status: 'success',
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        subscription_status: user.subscription_status
-      }
-    });
-  } catch (error) {
-    console.error('Update profile error:', error);
-    res.status(500).json({
-      status: 'error',
-      message: 'Server error'
-    });
-  }
+```
+res.status(500).json({
+  status: 'error',
+  message: 'Server error'
 });
+```
 
-// @route   PUT /api/auth/change-password
-// @desc    Change password
-// @access  Private
-router.put('/change-password', protect, async (req, res) => {
-  try {
-    const { currentPassword, newPassword } = req.body;
+}
 
-    const user = await User.findById(req.user.id).select('+password');
-
-    // Check current password
-    const isMatch = await user.comparePassword(currentPassword);
-    if (!isMatch) {
-      return res.status(401).json({
-        status: 'error',
-        message: 'Current password is incorrect'
-      });
-    }
-
-    // Update password
-    user.password = newPassword;
-    await user.save();
-
-    res.status(200).json({
-      status: 'success',
-      message: 'Password updated successfully'
-    });
-  } catch (error) {
-    console.error('Change password error:', error);
-    res.status(500).json({
-      status: 'error',
-      message: 'Server error'
-    });
-  }
 });
 
 module.exports = router;
