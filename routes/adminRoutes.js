@@ -1,221 +1,182 @@
 const express = require('express');
-const crypto = require('crypto');
 const router = express.Router();
-
 const User = require('../models/User');
-const { protect } = require('../middleware/auth');
-const {
-  registerValidation,
-  loginValidation,
-  handleValidationErrors
-} = require('../middleware/validation');
-const { sendTokenResponse, clearTokenCookie } = require('../utils/jwt');
-const { sendEmail } = require('../utils/emailService');
+const Niche = require('../models/Niche');
+const Settings = require('../models/Settings');
+const { protect, adminOnly } = require('../middleware/auth');
+
+// Protect all admin routes
+router.use(protect, adminOnly);
 
 // ===============================
-// REGISTER
+// DASHBOARD
 // ===============================
-router.post('/register', registerValidation, handleValidationErrors, async (req, res) => {
+router.get('/dashboard', async (req, res) => {
   try {
-    const { name, email, password } = req.body;
+    const totalUsers = await User.countDocuments();
+    const premiumUsers = await User.countDocuments({ subscription_status: 'premium' });
+    const freeUsers = await User.countDocuments({ subscription_status: 'free' });
+    const activeUsers = await User.countDocuments({ is_active: true });
 
-    const existingUser = await User.findOne({ email });
+    const totalNiches = await Niche.countDocuments();
+    const freeNiches = await Niche.countDocuments({ is_free: true });
+    const paidNiches = await Niche.countDocuments({ is_free: false });
+    const activeNiches = await Niche.countDocuments({ is_active: true });
 
-    if (existingUser) {
-      return res.status(400).json({
-        status: 'error',
-        message: 'User already exists with this email'
+    const usersWithPayments = await User.find(
+      { 'payment_history.0': { $exists: true } },
+      { payment_history: 1, created_at: 1, name: 1, email: 1, subscription_status: 1 }
+    ).lean();
+
+    let totalRevenue = 0;
+    let monthlyRevenue = 0;
+    let totalPayments = 0;
+
+    const now = new Date();
+    const currentMonth = now.getMonth();
+    const currentYear = now.getFullYear();
+
+    usersWithPayments.forEach((user) => {
+      (user.payment_history || []).forEach((payment) => {
+        if (payment.status === 'completed' || payment.status === 'captured') {
+          const amount = Number(payment.amount || 0);
+          totalRevenue += amount;
+          totalPayments += 1;
+
+          const paymentDate = payment.created_at ? new Date(payment.created_at) : null;
+          if (
+            paymentDate &&
+            paymentDate.getMonth() === currentMonth &&
+            paymentDate.getFullYear() === currentYear
+          ) {
+            monthlyRevenue += amount;
+          }
+        }
       });
-    }
-
-    const user = await User.create({
-      name,
-      email,
-      password
     });
 
-    sendTokenResponse(user, 201, res);
+    const conversionRate =
+      totalUsers > 0 ? ((premiumUsers / totalUsers) * 100).toFixed(1) : '0.0';
+
+    const recentUsers = await User.find()
+      .select('name email subscription_status created_at')
+      .sort({ created_at: -1 })
+      .limit(5)
+      .lean();
+
+    res.json({
+      status: 'success',
+      stats: {
+        users: {
+          total: totalUsers,
+          premium: premiumUsers,
+          free: freeUsers,
+          active: activeUsers
+        },
+        niches: {
+          total: totalNiches,
+          active: activeNiches,
+          free: freeNiches,
+          paid: paidNiches
+        },
+        revenue: {
+          total: totalRevenue,
+          monthly: monthlyRevenue,
+          currency: 'INR',
+          payments_count: totalPayments
+        },
+        conversions: {
+          premium_rate: conversionRate
+        }
+      },
+      recent_users: recentUsers
+    });
   } catch (error) {
-    console.error('Register error:', error);
+    console.error('Admin dashboard error:', error);
     res.status(500).json({
       status: 'error',
-      message: 'Server error during registration'
+      message: 'Dashboard error'
     });
   }
 });
 
 // ===============================
-// LOGIN
+// GET ALL USERS
 // ===============================
-router.post('/login', loginValidation, handleValidationErrors, async (req, res) => {
+router.get('/users', async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { search = '', subscription_status = '', page = 1, limit = 10 } = req.query;
 
-    const user = await User.findOne({ email }).select('+password');
+    const query = {};
 
-    if (!user) {
-      return res.status(401).json({
-        status: 'error',
-        message: 'Invalid credentials'
-      });
+    if (search) {
+      query.$or = [
+        { name: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } }
+      ];
     }
 
-    if (!user.is_active) {
-      return res.status(401).json({
-        status: 'error',
-        message: 'Your account has been deactivated'
-      });
+    if (subscription_status) {
+      query.subscription_status = subscription_status;
     }
 
-    const isMatch = await user.comparePassword(password);
+    const pageNum = Number(page) || 1;
+    const limitNum = Number(limit) || 10;
+    const skip = (pageNum - 1) * limitNum;
 
-    if (!isMatch) {
-      return res.status(401).json({
-        status: 'error',
-        message: 'Invalid credentials'
-      });
-    }
+    const users = await User.find(query)
+      .select('-password')
+      .sort({ created_at: -1 })
+      .skip(skip)
+      .limit(limitNum)
+      .lean();
 
-    user.last_login = Date.now();
-    await user.save({ validateBeforeSave: false });
+    const total = await User.countDocuments(query);
 
-    sendTokenResponse(user, 200, res);
+    res.json({
+      status: 'success',
+      users: users.map((user) => ({
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        subscription_status: user.subscription_status,
+        plan_type: user.plan_type,
+        expiry_date: user.expiry_date,
+        is_active: user.is_active,
+        created_at: user.created_at
+      })),
+      pagination: {
+        page: pageNum,
+        limit: limitNum,
+        total,
+        total_pages: Math.ceil(total / limitNum)
+      }
+    });
   } catch (error) {
-    console.error('Login error:', error);
+    console.error('Get users error:', error);
     res.status(500).json({
       status: 'error',
-      message: 'Server error during login'
+      message: 'Failed to fetch users'
     });
   }
 });
 
 // ===============================
-// FORGOT PASSWORD
+// GET SINGLE USER
 // ===============================
-router.post('/forgot-password', async (req, res) => {
+router.get('/users/:id', async (req, res) => {
   try {
-    const { email } = req.body;
-
-    const user = await User.findOne({ email });
+    const user = await User.findById(req.params.id).select('-password').lean();
 
     if (!user) {
       return res.status(404).json({
         status: 'error',
-        message: 'No user found with this email'
+        message: 'User not found'
       });
     }
 
-    const resetToken = crypto.randomBytes(32).toString('hex');
-
-    const hashedToken = crypto
-      .createHash('sha256')
-      .update(resetToken)
-      .digest('hex');
-
-    user.resetPasswordToken = hashedToken;
-    user.resetPasswordExpire = Date.now() + 15 * 60 * 1000;
-
-    await user.save({ validateBeforeSave: false });
-
-    const frontendUrl = process.env.FRONTEND_URL || 'https://ytlcnich.online';
-    const resetURL = `${frontendUrl}/reset-password/${resetToken}`;
-
-    const html = `
-      <div style="font-family: Arial, sans-serif; line-height: 1.6;">
-        <h2>Password Reset Request</h2>
-        <p>You requested a password reset.</p>
-        <p>Click the button below to reset your password:</p>
-        <p>
-          <a href="${resetURL}" style="display:inline-block;padding:12px 20px;background:#2563eb;color:#ffffff;text-decoration:none;border-radius:8px;">
-            Reset Password
-          </a>
-        </p>
-        <p>If the button does not work, copy this link and open it in your browser:</p>
-        <p>${resetURL}</p>
-        <p>This link will expire in 15 minutes.</p>
-      </div>
-    `;
-
-    await sendEmail({
-      to: user.email,
-      subject: 'Password Reset Request',
-      html
-    });
-
     res.json({
-      status: 'success',
-      message: 'Password reset email sent'
-    });
-  } catch (error) {
-    console.error('Forgot password error:', error);
-    res.status(500).json({
-      status: 'error',
-      message: 'Email sending failed'
-    });
-  }
-});
-
-// ===============================
-// RESET PASSWORD
-// ===============================
-router.post('/reset-password/:token', async (req, res) => {
-  try {
-    const hashedToken = crypto
-      .createHash('sha256')
-      .update(req.params.token)
-      .digest('hex');
-
-    const user = await User.findOne({
-      resetPasswordToken: hashedToken,
-      resetPasswordExpire: { $gt: Date.now() }
-    }).select('+password');
-
-    if (!user) {
-      return res.status(400).json({
-        status: 'error',
-        message: 'Invalid or expired token'
-      });
-    }
-
-    user.password = req.body.password;
-    user.resetPasswordToken = null;
-    user.resetPasswordExpire = null;
-
-    await user.save();
-
-    res.json({
-      status: 'success',
-      message: 'Password reset successful'
-    });
-  } catch (error) {
-    console.error('Reset password error:', error);
-    res.status(500).json({
-      status: 'error',
-      message: 'Password reset failed'
-    });
-  }
-});
-
-// ===============================
-// LOGOUT
-// ===============================
-router.post('/logout', protect, (req, res) => {
-  clearTokenCookie(res);
-
-  res.status(200).json({
-    status: 'success',
-    message: 'Logged out successfully'
-  });
-});
-
-// ===============================
-// GET CURRENT USER
-// ===============================
-router.get('/me', protect, async (req, res) => {
-  try {
-    const user = await User.findById(req.user.id);
-
-    res.status(200).json({
       status: 'success',
       user: {
         id: user._id,
@@ -225,81 +186,271 @@ router.get('/me', protect, async (req, res) => {
         subscription_status: user.subscription_status,
         plan_type: user.plan_type,
         expiry_date: user.expiry_date,
-        days_remaining: user.getSubscriptionDaysRemaining(),
+        is_active: user.is_active,
         created_at: user.created_at
       }
     });
   } catch (error) {
-    console.error('Get me error:', error);
+    console.error('Get user error:', error);
     res.status(500).json({
       status: 'error',
-      message: 'Server error'
+      message: 'Failed to fetch user'
     });
   }
 });
 
 // ===============================
-// UPDATE PROFILE
+// UPDATE USER
 // ===============================
-router.put('/update-profile', protect, async (req, res) => {
+router.put('/users/:id', async (req, res) => {
   try {
-    const { name } = req.body;
+    const allowedFields = [
+      'subscription_status',
+      'plan_type',
+      'expiry_date',
+      'is_active'
+    ];
 
-    const user = await User.findByIdAndUpdate(
-      req.user.id,
-      { name },
-      { new: true, runValidators: true }
-    );
+    const updateData = {};
+    allowedFields.forEach((field) => {
+      if (req.body[field] !== undefined) {
+        updateData[field] = req.body[field];
+      }
+    });
 
-    res.status(200).json({
+    const user = await User.findByIdAndUpdate(req.params.id, updateData, {
+      new: true,
+      runValidators: true
+    }).select('-password');
+
+    if (!user) {
+      return res.status(404).json({
+        status: 'error',
+        message: 'User not found'
+      });
+    }
+
+    res.json({
       status: 'success',
+      message: 'User updated successfully',
       user: {
         id: user._id,
         name: user.name,
         email: user.email,
         role: user.role,
-        subscription_status: user.subscription_status
+        subscription_status: user.subscription_status,
+        plan_type: user.plan_type,
+        expiry_date: user.expiry_date,
+        is_active: user.is_active
       }
     });
   } catch (error) {
-    console.error('Update profile error:', error);
+    console.error('Update user error:', error);
     res.status(500).json({
       status: 'error',
-      message: 'Server error'
+      message: 'Failed to update user'
     });
   }
 });
 
 // ===============================
-// CHANGE PASSWORD
+// DELETE USER
 // ===============================
-router.put('/change-password', protect, async (req, res) => {
+router.delete('/users/:id', async (req, res) => {
   try {
-    const { currentPassword, newPassword } = req.body;
+    await User.findByIdAndDelete(req.params.id);
 
-    const user = await User.findById(req.user.id).select('+password');
+    res.json({
+      status: 'success',
+      message: 'User deleted'
+    });
+  } catch (error) {
+    console.error('Delete user error:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Delete failed'
+    });
+  }
+});
 
-    const isMatch = await user.comparePassword(currentPassword);
+// ===============================
+// GET NICHES
+// ===============================
+router.get('/niches', async (req, res) => {
+  try {
+    const niches = await Niche.find().sort({ created_at: -1 }).lean();
 
-    if (!isMatch) {
-      return res.status(401).json({
+    res.json({
+      status: 'success',
+      niches
+    });
+  } catch (error) {
+    console.error('Get niches error:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to fetch niches'
+    });
+  }
+});
+
+// ===============================
+// GET SINGLE NICHE
+// ===============================
+router.get('/niches/:id', async (req, res) => {
+  try {
+    const niche = await Niche.findById(req.params.id).lean();
+
+    if (!niche) {
+      return res.status(404).json({
         status: 'error',
-        message: 'Current password is incorrect'
+        message: 'Niche not found'
       });
     }
 
-    user.password = newPassword;
-    await user.save();
-
-    res.status(200).json({
+    res.json({
       status: 'success',
-      message: 'Password updated successfully'
+      niche
     });
   } catch (error) {
-    console.error('Change password error:', error);
+    console.error('Get niche error:', error);
     res.status(500).json({
       status: 'error',
-      message: 'Server error'
+      message: 'Failed to fetch niche'
+    });
+  }
+});
+
+// ===============================
+// CREATE NICHE
+// ===============================
+router.post('/niches', async (req, res) => {
+  try {
+    const niche = await Niche.create({
+      ...req.body,
+      image: req.body.image || req.body.thumbnail || '',
+      thumbnail: req.body.image || req.body.thumbnail || '',
+      tutorial_video: req.body.tutorial_video || '',
+      created_by: req.user._id
+    });
+
+    res.json({
+      status: 'success',
+      message: 'Niche created',
+      niche
+    });
+  } catch (error) {
+    console.error('Create niche error:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to create niche'
+    });
+  }
+});
+
+// ===============================
+// UPDATE NICHE
+// ===============================
+router.put('/niches/:id', async (req, res) => {
+  try {
+    const updateData = {
+      ...req.body
+    };
+
+    if (req.body.image || req.body.thumbnail) {
+      updateData.image = req.body.image || req.body.thumbnail;
+      updateData.thumbnail = req.body.image || req.body.thumbnail;
+    }
+
+    if (req.body.tutorial_video !== undefined) {
+      updateData.tutorial_video = req.body.tutorial_video;
+    }
+
+    const niche = await Niche.findByIdAndUpdate(req.params.id, updateData, {
+      new: true,
+      runValidators: true
+    });
+
+    if (!niche) {
+      return res.status(404).json({
+        status: 'error',
+        message: 'Niche not found'
+      });
+    }
+
+    res.json({
+      status: 'success',
+      message: 'Niche updated',
+      niche
+    });
+  } catch (error) {
+    console.error('Update niche error:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Update failed'
+    });
+  }
+});
+
+// ===============================
+// DELETE NICHE
+// ===============================
+router.delete('/niches/:id', async (req, res) => {
+  try {
+    await Niche.findByIdAndDelete(req.params.id);
+
+    res.json({
+      status: 'success',
+      message: 'Niche deleted'
+    });
+  } catch (error) {
+    console.error('Delete niche error:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Delete failed'
+    });
+  }
+});
+
+// ===============================
+// SETTINGS
+// ===============================
+router.get('/settings', async (req, res) => {
+  try {
+    const settings = await Settings.getSettings();
+
+    res.json({
+      status: 'success',
+      settings
+    });
+  } catch (error) {
+    console.error('Get settings error:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Settings error'
+    });
+  }
+});
+
+router.put('/settings', async (req, res) => {
+  try {
+    const settings = await Settings.getSettings();
+
+    Object.keys(req.body).forEach((key) => {
+      settings[key] = req.body[key];
+    });
+
+    await settings.save();
+
+    res.json({
+      status: 'success',
+      message: 'Settings updated',
+      settings
+    });
+  } catch (error) {
+    console.error('Update settings error:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Settings update failed'
     });
   }
 });
