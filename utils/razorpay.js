@@ -90,20 +90,39 @@ exports.fetchPayment = async (paymentId) => {
 exports.getPlanAmount = async (planType) => {
   const settings = await Settings.getSettings();
 
+  const monthlyAmount = Number(settings?.pricing?.monthly?.amount || 999);
+  const monthlyCurrency = settings?.pricing?.monthly?.currency || 'INR';
+  const monthlyDescription = settings?.pricing?.monthly?.description || 'Monthly Premium Access';
+
+  const yearlyAmount = Number(settings?.pricing?.yearly?.amount || 2999);
+  const yearlyCurrency = settings?.pricing?.yearly?.currency || 'INR';
+  const yearlyDescription = settings?.pricing?.yearly?.description || 'Yearly Premium Access';
+  const yearlyDiscount = Number(settings?.pricing?.yearly?.discount_percentage || 17);
+
   if (planType === 'monthly') {
     return {
-      amount: settings.pricing.monthly.amount,
-      currency: settings.pricing.monthly.currency,
-      description: settings.pricing.monthly.description
+      amount: monthlyAmount,
+      currency: monthlyCurrency,
+      description: monthlyDescription
+    };
+  }
+
+  if (planType === 'quarterly') {
+    const quarterlyAmount = Math.round(monthlyAmount * 3 * 0.9); // 10% off
+    return {
+      amount: quarterlyAmount,
+      currency: monthlyCurrency,
+      description: 'Quarterly Premium Access',
+      discount_percentage: 10
     };
   }
 
   if (planType === 'yearly') {
     return {
-      amount: settings.pricing.yearly.amount,
-      currency: settings.pricing.yearly.currency,
-      description: settings.pricing.yearly.description,
-      discount_percentage: settings.pricing.yearly.discount_percentage
+      amount: yearlyAmount,
+      currency: yearlyCurrency,
+      description: yearlyDescription,
+      discount_percentage: yearlyDiscount
     };
   }
 
@@ -116,6 +135,10 @@ exports.calculateExpiryDate = (planType) => {
 
   if (planType === 'monthly') {
     return new Date(now.setMonth(now.getMonth() + 1));
+  }
+
+  if (planType === 'quarterly') {
+    return new Date(now.setMonth(now.getMonth() + 3));
   }
 
   if (planType === 'yearly') {

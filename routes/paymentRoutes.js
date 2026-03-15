@@ -192,12 +192,19 @@ router.get('/plans', async (req, res) => {
   try {
     const settings = await Settings.getSettings();
 
+    const monthlyAmount = Number(settings?.pricing?.monthly?.amount || 999);
+    const yearlyAmount = Number(settings?.pricing?.yearly?.amount || 2999);
+
+    // Quarterly plan auto-calc: 3 months - 10% discount
+    const quarterlyAmount = Math.round(monthlyAmount * 3 * 0.9);
+    const quarterlySavings = monthlyAmount * 3 - quarterlyAmount;
+
     res.status(200).json({
       status: 'success',
       plans: {
         monthly: {
           type: 'monthly',
-          amount: settings.pricing.monthly.amount,
+          amount: monthlyAmount,
           currency: settings.pricing.monthly.currency,
           description: settings.pricing.monthly.description,
           features: [
@@ -208,13 +215,28 @@ router.get('/plans', async (req, res) => {
             'Priority support'
           ]
         },
+        quarterly: {
+          type: 'quarterly',
+          amount: quarterlyAmount,
+          currency: settings.pricing.monthly.currency,
+          description: 'Quarterly Premium Access',
+          discount_percentage: 10,
+          savings: quarterlySavings,
+          features: [
+            'All Monthly features',
+            'Better value than monthly',
+            'Priority support',
+            'Faster content workflow',
+            'More consistent growth'
+          ]
+        },
         yearly: {
           type: 'yearly',
-          amount: settings.pricing.yearly.amount,
+          amount: yearlyAmount,
           currency: settings.pricing.yearly.currency,
           description: settings.pricing.yearly.description,
           discount_percentage: settings.pricing.yearly.discount_percentage,
-          savings: settings.pricing.monthly.amount * 12 - settings.pricing.yearly.amount,
+          savings: monthlyAmount * 12 - yearlyAmount,
           features: [
             'All Monthly features',
             '2 months FREE',
