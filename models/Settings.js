@@ -1,130 +1,156 @@
-const mongoose = require('mongoose');
+import { useEffect, useState } from 'react';
+import { adminAPI } from '@/utils/api';
+import toast from 'react-hot-toast';
 
-const settingsSchema = new mongoose.Schema({
-  // Razorpay Configuration
-  razorpay_key_id: {
-    type: String,
-    default: ''
-  },
-  razorpay_key_secret: {
-    type: String,
-    default: ''
-  },
-  razorpay_webhook_secret: {
-    type: String,
-    default: ''
-  },
+const AdminSettings = () => {
+  const [formData, setFormData] = useState({
+    monthly_price: '',
+    quarterly_price: '',
+    yearly_price: '',
+    yearly_discount: '',
+    quarterly_discount: ''
+  });
 
-  // OpenAI Configuration
-  openai_api_key: {
-    type: String,
-    default: ''
-  },
-  openai_model: {
-    type: String,
-    default: 'gpt-3.5-turbo'
-  },
+  const [loading, setLoading] = useState(true);
 
-  // Pricing Configuration
-  pricing: {
-    monthly: {
-      amount: {
-        type: Number,
-        default: 999
-      },
-      currency: {
-        type: String,
-        default: 'INR'
-      },
-      description: {
-        type: String,
-        default: 'Monthly Premium Access'
-      }
-    },
-    yearly: {
-      amount: {
-        type: Number,
-        default: 9990
-      },
-      currency: {
-        type: String,
-        default: 'INR'
-      },
-      description: {
-        type: String,
-        default: 'Yearly Premium Access (2 months free)'
-      },
-      discount_percentage: {
-        type: Number,
-        default: 17
-      }
+  useEffect(() => {
+    fetchSettings();
+  }, []);
+
+  const fetchSettings = async () => {
+    try {
+      const res = await adminAPI.getSettings();
+      const data = res.data.settings;
+
+      setFormData({
+        monthly_price: data?.pricing?.monthly?.amount || '',
+        quarterly_price: data?.pricing?.quarterly?.amount || '',
+        yearly_price: data?.pricing?.yearly?.amount || '',
+        yearly_discount: data?.pricing?.yearly?.discount_percentage || '',
+        quarterly_discount: data?.pricing?.quarterly?.discount_percentage || ''
+      });
+
+    } catch {
+      toast.error('Failed to load settings');
+    } finally {
+      setLoading(false);
     }
-  },
+  };
 
-  // App Configuration
-  app_name: {
-    type: String,
-    default: 'Ytlcnich.online'
-  },
-  app_description: {
-    type: String,
-    default: 'YouTube Automation US Niches Intelligence Platform'
-  },
-  support_email: {
-    type: String,
-    default: 'support@ytlcnich.online'
-  },
+  const handleChange = (e: any) => {
+    setFormData({
+      ...formData,
+      [e.target.name]: e.target.value
+    });
+  };
 
-  // Feature Flags
-  features: {
-    ai_script_generator: {
-      type: Boolean,
-      default: true
-    },
-    payment_gateway: {
-      type: Boolean,
-      default: true
-    },
-    free_niches_limit: {
-      type: Number,
-      default: 2
+  const handleSubmit = async (e: any) => {
+    e.preventDefault();
+
+    try {
+      await adminAPI.updateSettings({
+        pricing: {
+          monthly: {
+            amount: Number(formData.monthly_price),
+            currency: 'INR',
+            description: 'Monthly Premium Access'
+          },
+          quarterly: {
+            amount: Number(formData.quarterly_price),
+            currency: 'INR',
+            description: 'Quarterly Premium Access',
+            discount_percentage: Number(formData.quarterly_discount)
+          },
+          yearly: {
+            amount: Number(formData.yearly_price),
+            currency: 'INR',
+            description: 'Yearly Premium Access',
+            discount_percentage: Number(formData.yearly_discount)
+          }
+        }
+      });
+
+      toast.success('Settings updated successfully');
+
+    } catch {
+      toast.error('Failed to update settings');
     }
-  },
+  };
 
-  // Maintenance Mode
-  maintenance_mode: {
-    type: Boolean,
-    default: false
-  },
-  maintenance_message: {
-    type: String,
-    default: 'We are currently under maintenance. Please check back later.'
-  },
+  if (loading) return <p className="text-white">Loading...</p>;
 
-  updated_by: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    default: null
-  },
-  updated_at: {
-    type: Date,
-    default: Date.now
-  }
-});
+  return (
+    <div className="max-w-3xl mx-auto">
 
-// Ensure only one settings document exists
-settingsSchema.statics.getSettings = async function() {
-  let settings = await this.findOne();
-  if (!settings) {
-    settings = await this.create({});
-  }
-  return settings;
+      <h1 className="text-2xl text-white mb-6">Pricing Settings</h1>
+
+      <form onSubmit={handleSubmit} className="space-y-6 glass-card p-6">
+
+        {/* Monthly */}
+        <div>
+          <label className="text-white block mb-2">Monthly Price (₹)</label>
+          <input
+            type="number"
+            name="monthly_price"
+            value={formData.monthly_price}
+            onChange={handleChange}
+            className="input-field"
+          />
+        </div>
+
+        {/* Quarterly */}
+        <div>
+          <label className="text-white block mb-2">Quarterly Price (₹)</label>
+          <input
+            type="number"
+            name="quarterly_price"
+            value={formData.quarterly_price}
+            onChange={handleChange}
+            className="input-field"
+          />
+        </div>
+
+        <div>
+          <label className="text-white block mb-2">Quarterly Discount (%)</label>
+          <input
+            type="number"
+            name="quarterly_discount"
+            value={formData.quarterly_discount}
+            onChange={handleChange}
+            className="input-field"
+          />
+        </div>
+
+        {/* Yearly */}
+        <div>
+          <label className="text-white block mb-2">Yearly Price (₹)</label>
+          <input
+            type="number"
+            name="yearly_price"
+            value={formData.yearly_price}
+            onChange={handleChange}
+            className="input-field"
+          />
+        </div>
+
+        <div>
+          <label className="text-white block mb-2">Yearly Discount (%)</label>
+          <input
+            type="number"
+            name="yearly_discount"
+            value={formData.yearly_discount}
+            onChange={handleChange}
+            className="input-field"
+          />
+        </div>
+
+        <button className="btn-primary w-full">
+          Save Settings
+        </button>
+
+      </form>
+    </div>
+  );
 };
 
-// Update timestamp
-settingsSchema.pre('save', function(next) {
-  this.updated_at = Date.now();
-  next();
-});
-
-module.exports = mongoose.model('Settings', settingsSchema);
+export default AdminSettings;

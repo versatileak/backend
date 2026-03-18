@@ -12,9 +12,6 @@ const {
   calculateExpiryDate
 } = require('../utils/razorpay');
 
-// @route   POST /api/payment/create-order
-// @desc    Create Razorpay order
-// @access  Private
 router.post('/create-order', protect, paymentValidation, handleValidationErrors, async (req, res) => {
   try {
     const { plan_type } = req.body;
@@ -44,6 +41,7 @@ router.post('/create-order', protect, paymentValidation, handleValidationErrors,
 
     res.status(200).json({
       status: 'success',
+      razorpay_key_id: settings.razorpay_key_id,
       key_id: settings.razorpay_key_id,
       order: {
         id: order.id,
@@ -67,9 +65,6 @@ router.post('/create-order', protect, paymentValidation, handleValidationErrors,
   }
 });
 
-// @route   POST /api/payment/verify
-// @desc    Verify payment and update subscription
-// @access  Private
 router.post('/verify', protect, async (req, res) => {
   try {
     const {
@@ -134,9 +129,6 @@ router.post('/verify', protect, async (req, res) => {
   }
 });
 
-// @route   POST /api/payment/webhook
-// @desc    Razorpay webhook handler
-// @access  Public
 router.post('/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
   try {
     const signature = req.headers['x-razorpay-signature'];
@@ -185,19 +177,13 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
   }
 });
 
-// @route   GET /api/payment/plans
-// @desc    Get available subscription plans
-// @access  Public
 router.get('/plans', async (req, res) => {
   try {
     const settings = await Settings.getSettings();
 
     const monthlyAmount = Number(settings?.pricing?.monthly?.amount || 999);
+    const quarterlyAmount = Number(settings?.pricing?.quarterly?.amount || 2499);
     const yearlyAmount = Number(settings?.pricing?.yearly?.amount || 2999);
-
-    // Quarterly plan auto-calc: 3 months - 10% discount
-    const quarterlyAmount = Math.round(monthlyAmount * 3 * 0.9);
-    const quarterlySavings = monthlyAmount * 3 - quarterlyAmount;
 
     res.status(200).json({
       status: 'success',
@@ -205,8 +191,8 @@ router.get('/plans', async (req, res) => {
         monthly: {
           type: 'monthly',
           amount: monthlyAmount,
-          currency: settings.pricing.monthly.currency,
-          description: settings.pricing.monthly.description,
+          currency: settings?.pricing?.monthly?.currency || 'INR',
+          description: settings?.pricing?.monthly?.description || 'Monthly Premium Access',
           features: [
             'Access to all niches',
             'AI Script Generator',
@@ -218,10 +204,10 @@ router.get('/plans', async (req, res) => {
         quarterly: {
           type: 'quarterly',
           amount: quarterlyAmount,
-          currency: settings.pricing.monthly.currency,
-          description: 'Quarterly Premium Access',
-          discount_percentage: 10,
-          savings: quarterlySavings,
+          currency: settings?.pricing?.quarterly?.currency || 'INR',
+          description: settings?.pricing?.quarterly?.description || 'Quarterly Premium Access',
+          discount_percentage: Number(settings?.pricing?.quarterly?.discount_percentage || 10),
+          savings: monthlyAmount * 3 - quarterlyAmount,
           features: [
             'All Monthly features',
             'Better value than monthly',
@@ -233,13 +219,13 @@ router.get('/plans', async (req, res) => {
         yearly: {
           type: 'yearly',
           amount: yearlyAmount,
-          currency: settings.pricing.yearly.currency,
-          description: settings.pricing.yearly.description,
-          discount_percentage: settings.pricing.yearly.discount_percentage,
+          currency: settings?.pricing?.yearly?.currency || 'INR',
+          description: settings?.pricing?.yearly?.description || 'Yearly Premium Access',
+          discount_percentage: Number(settings?.pricing?.yearly?.discount_percentage || 17),
           savings: monthlyAmount * 12 - yearlyAmount,
           features: [
-            'All Monthly features',
-            '2 months FREE',
+            'All Quarterly features',
+            'Biggest discount',
             'Early access to new niches',
             'Exclusive webinars',
             'Community access'
@@ -256,9 +242,6 @@ router.get('/plans', async (req, res) => {
   }
 });
 
-// @route   GET /api/payment/history
-// @desc    Get user payment history
-// @access  Private
 router.get('/history', protect, async (req, res) => {
   try {
     const user = await User.findById(req.user._id).select('payment_history');
