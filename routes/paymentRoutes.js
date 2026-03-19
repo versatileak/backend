@@ -39,10 +39,9 @@ router.post('/create-order', protect, paymentValidation, handleValidationErrors,
       }
     );
 
-    res.status(200).json({
+    return res.status(200).json({
       status: 'success',
-      razorpay_key_id: settings.razorpay_key_id,
-      key_id: settings.razorpay_key_id,
+      key: settings.razorpay_key_id,
       order: {
         id: order.id,
         amount: order.amount,
@@ -58,7 +57,7 @@ router.post('/create-order', protect, paymentValidation, handleValidationErrors,
     });
   } catch (error) {
     console.error('Create order error:', error);
-    res.status(500).json({
+    return res.status(500).json({
       status: 'error',
       message: error.message || 'Failed to create order'
     });
@@ -109,7 +108,7 @@ router.post('/verify', protect, async (req, res) => {
       { new: true }
     );
 
-    res.status(200).json({
+    return res.status(200).json({
       status: 'success',
       message: 'Payment verified and subscription activated',
       user: {
@@ -122,7 +121,7 @@ router.post('/verify', protect, async (req, res) => {
     });
   } catch (error) {
     console.error('Verify payment error:', error);
-    res.status(500).json({
+    return res.status(500).json({
       status: 'error',
       message: 'Failed to verify payment'
     });
@@ -157,7 +156,7 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
         const user = await User.findById(orderNotes.user_id);
         if (user) {
           const paymentRecord = user.payment_history.find(
-            p => p.order_id === order_id
+            (p) => p.order_id === order_id
           );
           if (paymentRecord) {
             paymentRecord.status = 'captured';
@@ -167,10 +166,10 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
       }
     }
 
-    res.status(200).json({ received: true });
+    return res.status(200).json({ received: true });
   } catch (error) {
     console.error('Webhook error:', error);
-    res.status(500).json({
+    return res.status(500).json({
       status: 'error',
       message: 'Webhook processing failed'
     });
@@ -185,7 +184,7 @@ router.get('/plans', async (req, res) => {
     const quarterlyAmount = Number(settings?.pricing?.quarterly?.amount || 2499);
     const yearlyAmount = Number(settings?.pricing?.yearly?.amount || 2999);
 
-    res.status(200).json({
+    return res.status(200).json({
       status: 'success',
       plans: {
         monthly: {
@@ -235,7 +234,7 @@ router.get('/plans', async (req, res) => {
     });
   } catch (error) {
     console.error('Get plans error:', error);
-    res.status(500).json({
+    return res.status(500).json({
       status: 'error',
       message: 'Failed to fetch plans'
     });
@@ -246,13 +245,13 @@ router.get('/history', protect, async (req, res) => {
   try {
     const user = await User.findById(req.user._id).select('payment_history');
 
-    res.status(200).json({
+    return res.status(200).json({
       status: 'success',
       payments: user.payment_history.sort((a, b) => b.created_at - a.created_at)
     });
   } catch (error) {
     console.error('Get payment history error:', error);
-    res.status(500).json({
+    return res.status(500).json({
       status: 'error',
       message: 'Failed to fetch payment history'
     });
