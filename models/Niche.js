@@ -24,23 +24,18 @@ const nicheSchema = new mongoose.Schema({
     maxlength: [500, 'Description cannot be more than 500 characters'],
     default: ''
   },
-
   image: {
     type: String,
     default: ''
   },
-
   thumbnail: {
     type: String,
     default: ''
   },
-
-  // ✅ NEW FIELD
   tutorial_video: {
     type: String,
     default: ''
   },
-
   earning: {
     min_earning: {
       type: Number,
@@ -105,11 +100,15 @@ const nicheSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
+
+  // ✅ custom category allowed
   category: {
     type: String,
-    enum: ['entertainment', 'education', 'gaming', 'tech', 'lifestyle', 'business', 'health', 'other'],
+    trim: true,
+    lowercase: true,
     default: 'other'
   },
+
   tags: [{
     type: String,
     trim: true
@@ -152,6 +151,10 @@ nicheSchema.pre('save', function(next) {
     this.image = this.thumbnail;
   }
 
+  if (this.category) {
+    this.category = this.category.toLowerCase().trim();
+  }
+
   next();
 });
 
@@ -162,7 +165,7 @@ nicheSchema.pre('save', function(next) {
   next();
 });
 
-nicheSchema.index({ niche_name: 'text', description: 'text', tags: 'text' });
+nicheSchema.index({ niche_name: 'text', description: 'text', tags: 'text', category: 'text' });
 
 nicheSchema.statics.getFreeNiches = function() {
   return this.find({ is_free: true, is_active: true }).sort({ created_at: -1 });

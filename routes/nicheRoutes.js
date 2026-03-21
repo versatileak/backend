@@ -1,11 +1,9 @@
 const express = require('express');
 const router = express.Router();
 const Niche = require('../models/Niche');
-const { protect, optionalAuth } = require('../middleware/auth');
+const { optionalAuth } = require('../middleware/auth');
 
 // @route   GET /api/niches
-// @desc    Get all niches (with access control)
-// @access  Public/Private
 router.get('/', optionalAuth, async (req, res) => {
   try {
     const { search, category, page = 1, limit = 12 } = req.query;
@@ -17,7 +15,7 @@ router.get('/', optionalAuth, async (req, res) => {
     }
 
     if (category && category !== 'all') {
-      query.category = category;
+      query.category = String(category).toLowerCase().trim();
     }
 
     const isPremium =
@@ -40,7 +38,6 @@ router.get('/', optionalAuth, async (req, res) => {
       .select('-__v');
 
     const total = await Niche.countDocuments(query);
-
     const freeCount = await Niche.countDocuments({ is_active: true, is_free: true });
     const paidCount = await Niche.countDocuments({ is_active: true, is_free: false });
 
@@ -69,7 +66,7 @@ router.get('/', optionalAuth, async (req, res) => {
         tags: niche.tags,
         image: niche.image,
         thumbnail: niche.thumbnail,
-        tutorial_video: niche.tutorial_video || '',
+        tutorial_video: niche.tutorial_video,
         created_at: niche.created_at,
         ...(isPremium || isAdmin || niche.is_free
           ? {
@@ -93,8 +90,6 @@ router.get('/', optionalAuth, async (req, res) => {
 });
 
 // @route   GET /api/niches/free
-// @desc    Get only free niches
-// @access  Public
 router.get('/free', async (req, res) => {
   try {
     const niches = await Niche.getFreeNiches();
@@ -115,7 +110,7 @@ router.get('/free', async (req, res) => {
         tags: niche.tags,
         image: niche.image,
         thumbnail: niche.thumbnail,
-        tutorial_video: niche.tutorial_video || '',
+        tutorial_video: niche.tutorial_video,
         how_to_work: niche.how_to_work,
         tools_required: niche.tools_required,
         created_at: niche.created_at
@@ -130,9 +125,74 @@ router.get('/free', async (req, res) => {
   }
 });
 
+// @route   GET /api/niches/categories/list
+router.get('/categories/list', async (req, res) => {
+  try {
+    const rawCategories = await Niche.distinct('category', { is_active: true });
+
+    const cleaned = rawCategories
+      .filter(Boolean)
+      .map((c) => String(c).trim().toLowerCase())
+      .filter(Boolean);
+
+    const unique = [...new Set(cleaned)].sort();
+
+    const categories = [
+      { value: 'all', label: 'All Categories' },
+      ...unique.map((cat) => ({
+        value: cat,
+        label: cat
+          .split('-')
+          .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+          .join(' ')
+      }))
+    ];
+
+    res.status(200).json({
+      status: 'success',
+      categories
+    });
+  } catch (error) {
+    console.error('Get categories error:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Server error'
+    });
+  }
+});
+
+// @route   GET /api/niches/stats/overview
+router.get('/stats/overview', async (req, res) => {
+  try {
+    const totalNiches = await Niche.countDocuments({ is_active: true });
+    const freeNiches = await Niche.countDocuments({ is_active: true, is_free: true });
+    const paidNiches = await Niche.countDocuments({ is_active: true, is_free: false });
+
+    const categories = await Niche.aggregate([
+      { $match: { is_active: true } },
+      { $group: { _id: '$category', count: { $sum: 1 } } },
+      { $sort: { count: -1 } }
+    ]);
+
+    res.status(200).json({
+      status: 'success',
+      stats: {
+        total_niches: totalNiches,
+        free_niches: freeNiches,
+        paid_niches: paidNiches,
+        categories: categories.map((c) => ({ name: c._id, count: c.count }))
+      }
+    });
+  } catch (error) {
+    console.error('Get stats error:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Server error'
+    });
+  }
+});
+
 // @route   GET /api/niches/:slug
-// @desc    Get single niche by slug
-// @access  Public/Private
 router.get('/:slug', optionalAuth, async (req, res) => {
   try {
     const niche = await Niche.findOne({ slug: req.params.slug, is_active: true });
@@ -171,7 +231,7 @@ router.get('/:slug', optionalAuth, async (req, res) => {
         tags: niche.tags,
         image: niche.image,
         thumbnail: niche.thumbnail,
-        tutorial_video: niche.tutorial_video || '',
+        tutorial_video: niche.tutorial_video,
         view_count: niche.view_count,
         created_at: niche.created_at,
         ...(hasAccess
@@ -189,69 +249,6 @@ router.get('/:slug', optionalAuth, async (req, res) => {
     });
   } catch (error) {
     console.error('Get niche error:', error);
-    res.status(500).json({
-      status: 'error',
-      message: 'Server error'
-    });
-  }
-});
-
-// @route   GET /api/niches/categories/list
-// @desc    Get all categories
-// @access  Public
-router.get('/categories/list', async (req, res) => {
-  try {
-    const categories = [
-      { value: 'all', label: 'All Categories' },
-      { value: 'entertainment', label: 'Entertainment' },
-      { value: 'education', label: 'Education' },
-      { value: 'gaming', label: 'Gaming' },
-      { value: 'tech', label: 'Technology' },
-      { value: 'lifestyle', label: 'Lifestyle' },
-      { value: 'business', label: 'Business' },
-      { value: 'health', label: 'Health & Fitness' },
-      { value: 'other', label: 'Other' }
-    ];
-
-    res.status(200).json({
-      status: 'success',
-      categories
-    });
-  } catch (error) {
-    console.error('Get categories error:', error);
-    res.status(500).json({
-      status: 'error',
-      message: 'Server error'
-    });
-  }
-});
-
-// @route   GET /api/niches/stats/overview
-// @desc    Get niche statistics
-// @access  Public
-router.get('/stats/overview', async (req, res) => {
-  try {
-    const totalNiches = await Niche.countDocuments({ is_active: true });
-    const freeNiches = await Niche.countDocuments({ is_active: true, is_free: true });
-    const paidNiches = await Niche.countDocuments({ is_active: true, is_free: false });
-
-    const categories = await Niche.aggregate([
-      { $match: { is_active: true } },
-      { $group: { _id: '$category', count: { $sum: 1 } } },
-      { $sort: { count: -1 } }
-    ]);
-
-    res.status(200).json({
-      status: 'success',
-      stats: {
-        total_niches: totalNiches,
-        free_niches: freeNiches,
-        paid_niches: paidNiches,
-        categories: categories.map((c) => ({ name: c._id, count: c.count }))
-      }
-    });
-  } catch (error) {
-    console.error('Get stats error:', error);
     res.status(500).json({
       status: 'error',
       message: 'Server error'
